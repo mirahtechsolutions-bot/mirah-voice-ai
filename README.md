@@ -159,15 +159,29 @@ CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 
 ### Free Deployment Options
 
-#### Frontend (Netlify/Vercel)
-1. Build the React app: `cd client && npm run build`
-2. Deploy the `build` folder to Netlify or Vercel
+#### Frontend (Vercel - Recommended)
+1. **Connect your GitHub repository to Vercel**
+2. **Set build settings in Vercel:**
+   - Build Command: `cd frontend && npm run build`
+   - Output Directory: `frontend/dist`
+   - Install Command: `npm run install-all`
+3. **Deploy**: Vercel will automatically build and deploy your frontend
+
+#### Frontend (Netlify)
+1. Build the React app: `cd frontend && npm run build`
+2. Deploy the `frontend/dist` folder to Netlify
 3. Set environment variables in your hosting platform
 
 #### Backend (Railway/Heroku)
-1. Deploy the `server` folder to Railway or Heroku
-2. Set the `OPENAI_API_KEY` environment variable
+1. Deploy the `backend` folder to Railway or Heroku
+2. Set the `OLLAMA_HOST` environment variable (if using external Ollama)
 3. Update the frontend API URL to point to your deployed backend
+
+#### Full Stack (Docker)
+```bash
+# Build and run with Docker Compose
+docker-compose up --build
+```
 
 ### Docker Deployment
 ```bash
