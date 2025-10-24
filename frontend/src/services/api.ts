@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { QuestionResponse, InterviewRequest, InterviewResponse, InterviewType, OllamaStatus } from '../types';
+import { QuestionResponse, InterviewRequest, InterviewResponse, InterviewType, OllamaStatus, ResumeUploadResponse, ResumeData } from '../types';
 
 const API_BASE_URL = '/api';
 
@@ -59,6 +59,31 @@ export const apiService = {
   // Check Ollama status
   async checkOllamaStatus(): Promise<OllamaStatus> {
     const response = await api.get('/ollama-status');
+    return response.data;
+  },
+
+  // Upload resume
+  async uploadResume(file: File): Promise<ResumeUploadResponse> {
+    const formData = new FormData();
+    formData.append('resume', file);
+    
+    const response = await api.post('/upload-resume', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  // Get uploaded resumes
+  async getResumes(): Promise<ResumeData[]> {
+    const response = await api.get('/resumes');
+    return response.data;
+  },
+
+  // Delete resume
+  async deleteResume(resumeId: string): Promise<{ success: boolean; message: string }> {
+    const response = await api.delete(`/resumes/${resumeId}`);
     return response.data;
   },
 };

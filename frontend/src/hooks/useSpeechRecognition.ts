@@ -1,5 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
+// Extend Window interface for TypeScript
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
+
 interface UseSpeechRecognitionReturn {
   transcript: string;
   isListening: boolean;
@@ -15,7 +23,7 @@ export const useSpeechRecognition = (): UseSpeechRecognitionReturn => {
   const [isListening, setIsListening] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
   const [error, setError] = useState('');
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
     // Check if speech recognition is supported
@@ -49,7 +57,7 @@ export const useSpeechRecognition = (): UseSpeechRecognitionReturn => {
       setError('');
     };
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    recognition.onresult = (event: any) => {
       let finalTranscript = '';
       let interimTranscript = '';
 
@@ -65,7 +73,7 @@ export const useSpeechRecognition = (): UseSpeechRecognitionReturn => {
       setTranscript(finalTranscript || interimTranscript);
     };
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+    recognition.onerror = (event: any) => {
       console.error('Speech recognition error:', event.error);
       setIsListening(false);
       
@@ -139,11 +147,3 @@ export const useSpeechRecognition = (): UseSpeechRecognitionReturn => {
     resetTranscript,
   };
 };
-
-// Extend Window interface for TypeScript
-declare global {
-  interface Window {
-    SpeechRecognition: typeof SpeechRecognition;
-    webkitSpeechRecognition: typeof SpeechRecognition;
-  }
-}
