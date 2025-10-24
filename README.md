@@ -5,12 +5,15 @@ A free, open-source AI-powered voice interview helper built with **React TypeScr
 ## ✨ Features
 
 - **Voice Input**: Speak your answers using your microphone with real-time transcription
+- **Resume Upload**: Upload your resume for personalized, contextual interview questions
 - **Local AI**: Powered by Ollama with Llama3 model - completely free and private
 - **Multiple Interview Modes**: HR, Technical, and Behavioral questions
 - **Text-to-Speech**: Listen to questions and AI feedback
 - **TypeScript Frontend**: Modern React with full type safety
 - **Tailwind CSS**: Beautiful, responsive design
 - **Python Backend**: FastAPI with async support
+- **Resume Parsing**: AI-powered resume analysis and structured data extraction
+- **Contextual Feedback**: AI feedback tailored to your background and experience
 - **Real-time Status**: Check Ollama and model availability
 - **Fallback Mode**: Works even without Ollama setup
 - **Free & Open Source**: No API costs, completely local
@@ -60,12 +63,19 @@ A free, open-source AI-powered voice interview helper built with **React TypeScr
 
 ## 🎯 How to Use
 
-1. **Choose Interview Mode**: Select from HR, Technical, or Behavioral questions
-2. **Get a Question**: Click the refresh button to get a new interview question
-3. **Record Your Answer**: Click the microphone button and speak your answer
-4. **Submit**: Click "Submit Answer" to get AI feedback
-5. **Review Feedback**: Read and listen to the AI's suggestions for improvement
-6. **Practice More**: Get new questions and continue practicing
+1. **Upload Your Resume** (Optional but Recommended): Upload your resume for personalized questions
+2. **Choose Interview Mode**: Select from HR, Technical, or Behavioral questions
+3. **Get a Question**: Click the refresh button to get a new interview question
+4. **Record Your Answer**: Click the microphone button and speak your answer, or type manually
+5. **Submit**: Click "Submit Answer" to get AI feedback
+6. **Review Feedback**: Read and listen to the AI's suggestions for improvement
+7. **Practice More**: Get new questions and continue practicing
+
+### Resume Upload Benefits:
+- **Personalized Questions**: Get questions tailored to your experience and skills
+- **Contextual Feedback**: AI references your background in feedback
+- **Relevant Examples**: Questions based on your actual work history
+- **Skill-Specific**: Technical questions match your tech stack
 
 ## 🛠️ Technology Stack
 
@@ -86,6 +96,9 @@ A free, open-source AI-powered voice interview helper built with **React TypeScr
 - **Llama3**: Meta's open-source large language model
 - **Pydantic**: Data validation and settings management
 - **Uvicorn**: ASGI server for FastAPI
+- **PyPDF2**: PDF text extraction
+- **python-docx**: Word document processing
+- **aiofiles**: Async file operations
 
 ## 📁 Project Structure
 

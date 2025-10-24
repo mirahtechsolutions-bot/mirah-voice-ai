@@ -1,11 +1,18 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 import ollama
 import os
+import uuid
+import json
+from datetime import datetime
 from dotenv import load_dotenv
 import logging
+import aiofiles
+from docx import Document
+import PyPDF2
+import io
 
 # Load environment variables
 load_dotenv()
@@ -30,10 +37,21 @@ app.add_middleware(
 )
 
 # Pydantic models
+class ResumeData(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    summary: Optional[str] = None
+    experience: Optional[List[Dict[str, str]]] = None
+    education: Optional[List[Dict[str, str]]] = None
+    skills: Optional[List[str]] = None
+    projects: Optional[List[Dict[str, any]]] = None
+
 class InterviewRequest(BaseModel):
     user_answer: str
     question: str
     interview_type: str
+    resume_context: Optional[ResumeData] = None
 
 class InterviewResponse(BaseModel):
     success: bool
@@ -50,6 +68,19 @@ class InterviewTypeResponse(BaseModel):
     id: str
     name: str
     question_count: int
+
+class ResumeUploadResponse(BaseModel):
+    success: bool
+    resume_id: str
+    parsed_data: ResumeData
+    message: str
+
+class ResumeResponse(BaseModel):
+    id: str
+    filename: str
+    content: str
+    parsed_data: ResumeData
+    uploaded_at: str
 
 # Interview question templates
 INTERVIEW_QUESTIONS = {
@@ -114,6 +145,97 @@ except Exception as e:
     logger.error(f"Failed to initialize Ollama client: {e}")
     ollama_client = None
 
+# In-memory storage for resumes (in production, use a database)
+resume_storage: Dict[str, ResumeResponse] = {}
+
+# Resume parsing functions
+async def extract_text_from_file(file: UploadFile) -> str:
+    """Extract text content from uploaded file"""
+    content = await file.read()
+    
+    if file.content_type == "application/pdf":
+        return extract_text_from_pdf(content)
+    elif file.content_type in ["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]:
+        return extract_text_from_docx(content)
+    elif file.content_type == "text/plain":
+        return content.decode('utf-8')
+    else:
+        raise ValueError(f"Unsupported file type: {file.content_type}")
+
+def extract_text_from_pdf(content: bytes) -> str:
+    """Extract text from PDF content"""
+    try:
+        pdf_reader = PyPDF2.PdfReader(io.BytesIO(content))
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() + "\n"
+        return text
+    except Exception as e:
+        logger.error(f"Error extracting PDF text: {e}")
+        return ""
+
+def extract_text_from_docx(content: bytes) -> str:
+    """Extract text from DOCX content"""
+    try:
+        doc = Document(io.BytesIO(content))
+        text = ""
+        for paragraph in doc.paragraphs:
+            text += paragraph.text + "\n"
+        return text
+    except Exception as e:
+        logger.error(f"Error extracting DOCX text: {e}")
+        return ""
+
+async def parse_resume_with_ai(text: str) -> ResumeData:
+    """Parse resume text using AI to extract structured data"""
+    if not ollama_client:
+        return ResumeData()  # Return empty data if AI not available
+    
+    try:
+        prompt = f"""Parse the following resume text and extract structured information. Return a JSON object with the following fields:
+- name: Full name
+- email: Email address
+- phone: Phone number
+- summary: Professional summary or objective
+- experience: Array of work experience objects with company, position, duration, description
+- education: Array of education objects with institution, degree, year
+- skills: Array of skills
+- projects: Array of project objects with name, description, technologies
+
+Resume text:
+{text}
+
+Return only valid JSON, no additional text."""
+
+        response = ollama_client.chat(
+            model='llama3',
+            messages=[
+                {
+                    'role': 'system',
+                    'content': 'You are a resume parser. Extract structured information from resume text and return valid JSON only.'
+                },
+                {
+                    'role': 'user',
+                    'content': prompt
+                }
+            ]
+        )
+        
+        # Parse the AI response as JSON
+        ai_response = response['message']['content']
+        # Clean up the response to extract JSON
+        if '```json' in ai_response:
+            ai_response = ai_response.split('```json')[1].split('```')[0]
+        elif '```' in ai_response:
+            ai_response = ai_response.split('```')[1].split('```')[0]
+        
+        parsed_data = json.loads(ai_response.strip())
+        return ResumeData(**parsed_data)
+        
+    except Exception as e:
+        logger.error(f"Error parsing resume with AI: {e}")
+        return ResumeData()  # Return empty data on error
+
 @app.get("/")
 async def root():
     return {"message": "Mirah Voice API is running", "status": "healthy"}
@@ -149,6 +271,73 @@ async def get_interview_types():
         for type_id, questions in INTERVIEW_QUESTIONS.items()
     ]
 
+@app.post("/api/upload-resume", response_model=ResumeUploadResponse)
+async def upload_resume(file: UploadFile = File(...)):
+    """Upload and parse a resume file"""
+    try:
+        # Validate file type
+        allowed_types = [
+            "application/pdf",
+            "application/msword", 
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "text/plain"
+        ]
+        
+        if file.content_type not in allowed_types:
+            raise HTTPException(status_code=400, detail="Unsupported file type. Please upload PDF, DOC, DOCX, or TXT.")
+        
+        # Validate file size (5MB limit)
+        if file.size and file.size > 5 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="File size must be less than 5MB.")
+        
+        # Extract text from file
+        text_content = await extract_text_from_file(file)
+        
+        if not text_content.strip():
+            raise HTTPException(status_code=400, detail="Could not extract text from the uploaded file.")
+        
+        # Parse resume with AI
+        parsed_data = await parse_resume_with_ai(text_content)
+        
+        # Generate unique ID and store resume
+        resume_id = str(uuid.uuid4())
+        resume_response = ResumeResponse(
+            id=resume_id,
+            filename=file.filename,
+            content=text_content,
+            parsed_data=parsed_data,
+            uploaded_at=datetime.now().isoformat()
+        )
+        
+        resume_storage[resume_id] = resume_response
+        
+        return ResumeUploadResponse(
+            success=True,
+            resume_id=resume_id,
+            parsed_data=parsed_data,
+            message="Resume uploaded and parsed successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading resume: {e}")
+        raise HTTPException(status_code=500, detail="Failed to process resume")
+
+@app.get("/api/resumes", response_model=List[ResumeResponse])
+async def get_resumes():
+    """Get all uploaded resumes"""
+    return list(resume_storage.values())
+
+@app.delete("/api/resumes/{resume_id}")
+async def delete_resume(resume_id: str):
+    """Delete a resume by ID"""
+    if resume_id not in resume_storage:
+        raise HTTPException(status_code=404, detail="Resume not found")
+    
+    del resume_storage[resume_id]
+    return {"success": True, "message": "Resume deleted successfully"}
+
 @app.post("/api/generate-answer", response_model=InterviewResponse)
 async def generate_ai_feedback(request: InterviewRequest):
     """Generate AI feedback for user's interview answer"""
@@ -156,16 +345,28 @@ async def generate_ai_feedback(request: InterviewRequest):
         if not request.user_answer or not request.question:
             raise HTTPException(status_code=400, detail="User answer and question are required")
 
-        # Create the prompt for the AI
+        # Create the prompt for the AI with resume context
+        resume_context = ""
+        if request.resume_context:
+            resume_context = f"""
+Candidate's Background:
+- Name: {request.resume_context.name or 'Not provided'}
+- Summary: {request.resume_context.summary or 'Not provided'}
+- Experience: {len(request.resume_context.experience or [])} positions
+- Skills: {', '.join(request.resume_context.skills or [])}
+- Education: {len(request.resume_context.education or [])} degrees
+"""
+
         prompt = f"""You are an expert interview coach. The candidate was asked: "{request.question}"
 
 The candidate answered: "{request.user_answer}"
-
+{resume_context}
 Please provide:
 1. A brief assessment of their answer (what they did well, what could be improved)
 2. A suggested improved answer that demonstrates best practices
 3. Key points they should have covered
 4. Tips for similar questions in the future
+5. If resume context is available, reference their background and experience in your feedback
 
 Keep the response concise, constructive, and helpful. Format it as a coaching response."""
 
@@ -190,10 +391,10 @@ Keep the response concise, constructive, and helpful. Format it as a coaching re
                 
             except Exception as ollama_error:
                 logger.warning(f"Ollama request failed: {ollama_error}")
-                ai_feedback = get_fallback_response(request.user_answer, request.question)
+                ai_feedback = get_fallback_response(request.user_answer, request.question, request.resume_context)
         else:
             logger.warning("Ollama client not available, using fallback response")
-            ai_feedback = get_fallback_response(request.user_answer, request.question)
+            ai_feedback = get_fallback_response(request.user_answer, request.question, request.resume_context)
 
         return InterviewResponse(
             success=True,
@@ -207,10 +408,17 @@ Keep the response concise, constructive, and helpful. Format it as a coaching re
         logger.error(f"Error generating AI response: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate AI feedback")
 
-def get_fallback_response(user_answer: str, question: str) -> str:
+def get_fallback_response(user_answer: str, question: str, resume_context: ResumeData = None) -> str:
     """Provide a fallback response when AI is not available"""
+    resume_section = ""
+    if resume_context:
+        resume_section = f"""
+**Your Background Context:**
+Based on your resume, I can see you have experience in {', '.join(resume_context.skills or [])} and {len(resume_context.experience or [])} years of professional experience. This context helps tailor the feedback to your specific situation.
+"""
+    
     return f"""Thank you for your answer. Here are some general tips for interview success:
-
+{resume_section}
 **Assessment of Your Answer:**
 Your response shows engagement with the question. Here are some areas to consider:
 

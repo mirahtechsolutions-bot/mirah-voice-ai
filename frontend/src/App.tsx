@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Header from './components/Header';
 import InterviewModeSelector from './components/InterviewModeSelector';
 import QuestionDisplay from './components/QuestionDisplay';
 import VoiceRecorder from './components/VoiceRecorder';
 import AnswerDisplay from './components/AnswerDisplay';
+import ResumeUpload from './components/ResumeUpload';
 import OllamaStatus from './components/OllamaStatus';
-import { InterviewMode, QuestionResponse, InterviewResponse } from './types';
+import { InterviewMode, QuestionResponse, InterviewResponse, ResumeData } from './types';
 import { apiService } from './services/api';
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showOllamaStatus, setShowOllamaStatus] = useState(false);
+  const [currentResume, setCurrentResume] = useState<ResumeData | null>(null);
 
   useEffect(() => {
     loadNewQuestion();
@@ -57,6 +59,7 @@ function App() {
         user_answer: answer,
         question: currentQuestion.question,
         interview_type: currentMode,
+        resume_context: currentResume?.parsed_data,
       });
 
       setAiFeedback(response);
@@ -77,6 +80,11 @@ function App() {
           <InterviewModeSelector 
             currentMode={currentMode}
             onModeChange={setCurrentMode}
+          />
+
+          <ResumeUpload 
+            onResumeUploaded={setCurrentResume}
+            currentResume={currentResume}
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
