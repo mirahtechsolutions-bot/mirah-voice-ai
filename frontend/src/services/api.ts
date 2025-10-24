@@ -68,9 +68,7 @@ export const apiService = {
     formData.append('resume', file);
     
     const response = await api.post('/upload-resume', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+      timeout: 60000, // 60 seconds timeout for file upload
     });
     return response.data;
   },

@@ -45,7 +45,7 @@ class ResumeData(BaseModel):
     experience: Optional[List[Dict[str, str]]] = None
     education: Optional[List[Dict[str, str]]] = None
     skills: Optional[List[str]] = None
-    projects: Optional[List[Dict[str, any]]] = None
+    projects: Optional[List[Dict[str, str]]] = None
 
 class InterviewRequest(BaseModel):
     user_answer: str
@@ -153,14 +153,38 @@ async def extract_text_from_file(file: UploadFile) -> str:
     """Extract text content from uploaded file"""
     content = await file.read()
     
-    if file.content_type == "application/pdf":
+    # Get file extension as fallback
+    file_extension = file.filename.lower().split('.')[-1] if '.' in file.filename else ''
+    
+    logger.info(f"Extracting text from file: {file.filename}, content_type: {file.content_type}, extension: {file_extension}")
+    
+    # Try content type first, then fall back to extension
+    if file.content_type == "application/pdf" or file_extension == "pdf":
         return extract_text_from_pdf(content)
-    elif file.content_type in ["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]:
+    elif (file.content_type in ["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"] or 
+          file_extension in ["doc", "docx"]):
         return extract_text_from_docx(content)
-    elif file.content_type == "text/plain":
-        return content.decode('utf-8')
+    elif file.content_type == "text/plain" or file_extension == "txt":
+        try:
+            return content.decode('utf-8')
+        except UnicodeDecodeError:
+            # Try other encodings
+            try:
+                return content.decode('latin-1')
+            except:
+                return content.decode('utf-8', errors='ignore')
     else:
-        raise ValueError(f"Unsupported file type: {file.content_type}")
+        # Try to detect file type by content
+        if content.startswith(b'%PDF'):
+            return extract_text_from_pdf(content)
+        elif content.startswith(b'PK'):  # ZIP-based format (DOCX)
+            return extract_text_from_docx(content)
+        else:
+            # Try as text
+            try:
+                return content.decode('utf-8')
+            except:
+                return content.decode('utf-8', errors='ignore')
 
 def extract_text_from_pdf(content: bytes) -> str:
     """Extract text from PDF content"""
@@ -272,19 +296,33 @@ async def get_interview_types():
     ]
 
 @app.post("/api/upload-resume", response_model=ResumeUploadResponse)
-async def upload_resume(file: UploadFile = File(...)):
+async def upload_resume(file: UploadFile = File(..., alias="resume")):
     """Upload and parse a resume file"""
     try:
-        # Validate file type
+        logger.info(f"Received file upload: {file.filename}, content_type: {file.content_type}, size: {file.size}")
+        
+        # Validate file exists
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="No file provided.")
+        
+        # Validate file type - be more flexible with content types
         allowed_types = [
             "application/pdf",
             "application/msword", 
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "text/plain"
+            "text/plain",
+            "application/octet-stream"  # Sometimes files are sent with this type
         ]
         
-        if file.content_type not in allowed_types:
-            raise HTTPException(status_code=400, detail="Unsupported file type. Please upload PDF, DOC, DOCX, or TXT.")
+        # Also check file extension as fallback
+        file_extension = file.filename.lower().split('.')[-1] if '.' in file.filename else ''
+        allowed_extensions = ['pdf', 'doc', 'docx', 'txt']
+        
+        if file.content_type not in allowed_types and file_extension not in allowed_extensions:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Unsupported file type. Please upload PDF, DOC, DOCX, or TXT. Received: {file.content_type}"
+            )
         
         # Validate file size (5MB limit)
         if file.size and file.size > 5 * 1024 * 1024:
@@ -321,8 +359,8 @@ async def upload_resume(file: UploadFile = File(...)):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error uploading resume: {e}")
-        raise HTTPException(status_code=500, detail="Failed to process resume")
+        logger.error(f"Error uploading resume: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to process resume: {str(e)}")
 
 @app.get("/api/resumes", response_model=List[ResumeResponse])
 async def get_resumes():
